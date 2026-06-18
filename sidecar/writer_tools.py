@@ -90,4 +90,11 @@ def _edit_result(reply):
     data = reply.get("data") or {}
     if data.get("applied"):
         return "The user approved and the edit was applied to the document."
+    feedback = data.get("feedback")
+    if feedback:
+        return (
+            "The user did NOT accept this edit and wants you to revise it. "
+            f"Their feedback: \"{feedback}\". Produce an improved version and "
+            "propose it again with the same tool."
+        )
     return "The user rejected the edit; the document was left unchanged."

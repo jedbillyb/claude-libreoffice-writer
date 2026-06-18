@@ -147,6 +147,7 @@ class ClaudePanel(unohelper.Base, XActionListener):
         self._controls["input"] = self._add_edit("input", multiline=True, readonly=False)
         self._controls["send"] = self._add_button("send", "Send")
         self._controls["apply"] = self._add_button("apply", "Apply")
+        self._controls["improve"] = self._add_button("improve", "Improve")
         self._controls["reject"] = self._add_button("reject", "Reject")
         self._controls["status"] = self._add_label("status", "Starting Claude…")
 
@@ -231,16 +232,17 @@ class ClaudePanel(unohelper.Base, XActionListener):
         self._controls["log"].setPosSize(x, y, cw, log_h, 15)
         y += log_h + pad
         if actions_visible:
-            bw = (cw - pad) // 2
+            bw = (cw - 2 * pad) // 3
             self._controls["apply"].setPosSize(x, y, bw, btn_h, 15)
-            self._controls["reject"].setPosSize(x + bw + pad, y, bw, btn_h, 15)
+            self._controls["improve"].setPosSize(x + bw + pad, y, bw, btn_h, 15)
+            self._controls["reject"].setPosSize(x + 2 * (bw + pad), y, bw, btn_h, 15)
             y += actions_h
         self._controls["input"].setPosSize(x, y, cw, input_h, 15)
         y += input_h + pad
         self._controls["send"].setPosSize(x, y, cw, btn_h, 15)
 
     def _show_actions(self, visible):
-        for n in ("apply", "reject"):
+        for n in ("apply", "improve", "reject"):
             self._controls[n].setVisible(visible)
 
     # -- sidecar -----------------------------------------------------------
@@ -296,7 +298,8 @@ class ClaudePanel(unohelper.Base, XActionListener):
             self.pending_edit = (done, info)
             self._set_status("Claude wants to "
                              + self._EDIT_LABEL.get(op, "edit")
-                             + " (highlighted). Apply or Reject?")
+                             + " (highlighted). Apply, Reject, or type feedback "
+                             + "and click Improve.")
             self._show_actions(True)
             self._relayout()
         self.main.post(show)
@@ -310,6 +313,8 @@ class ClaudePanel(unohelper.Base, XActionListener):
             self._resolve_edit(True)
         elif cmd == "reject":
             self._resolve_edit(False)
+        elif cmd == "improve":
+            self._improve_edit()
 
     def _do_send(self):
         text = self._controls["input"].getText().strip()
@@ -340,6 +345,30 @@ class ClaudePanel(unohelper.Base, XActionListener):
         except Exception as exc:
             done(False, error=str(exc))
             self._set_status(f"Edit failed: {exc}")
+
+    def _improve_edit(self):
+        """Revert the current preview and ask Claude to revise it with feedback."""
+        if self.pending_edit is None:
+            return
+        feedback = self._controls["input"].getText().strip()
+        if not feedback:
+            self._set_status("Type what to change, then click Improve.")
+            return
+        done, info = self.pending_edit
+        self.pending_edit = None
+        self._show_actions(False)
+        self._relayout()
+        self._controls["input"].setText("")
+        self._append_log("You (improve)", feedback)
+        try:
+            doc = writer_ops.current_text_doc(self.ctx)
+            writer_ops.reject_preview(doc, info["handle"],
+                                      info["original"], info["kind"])
+            self._set_status("Claude is revising…")
+            done(False, feedback=feedback)
+        except Exception as exc:
+            done(False, error=str(exc))
+            self._set_status(f"Could not revise: {exc}")
 
     # -- helpers -----------------------------------------------------------
     def _append_log(self, who, text):

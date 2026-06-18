@@ -144,11 +144,14 @@ class SidecarClient:
             except Exception as exc:
                 self._send_op_result(op_id, False, error=str(exc))
         elif op in EDIT_OPS:
-            def done(applied, error=None):
+            def done(applied, error=None, feedback=None):
                 if error is not None:
                     self._send_op_result(op_id, False, error=error)
                 else:
-                    self._send_op_result(op_id, True, data={"applied": bool(applied)})
+                    data = {"applied": bool(applied)}
+                    if feedback:
+                        data["feedback"] = feedback
+                    self._send_op_result(op_id, True, data=data)
             try:
                 self.request_edit(op, args, done)
             except Exception as exc:
