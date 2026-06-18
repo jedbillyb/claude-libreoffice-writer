@@ -13,6 +13,8 @@ the UI is marshalled onto the LibreOffice main thread via theAsyncCallback.
 """
 
 import os
+import shutil
+import subprocess
 import sys
 import threading
 import traceback
@@ -47,17 +49,39 @@ def _ext_dir():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _resolve_sidecar(ctx):
-    """Return (python_path, script_path, env) for launching the sidecar.
+# Auto-managed sidecar environment. Change BOOTSTRAP_VENV to relocate it.
+BOOTSTRAP_VENV = os.path.expanduser("~/.local/share/claude-writer/venv")
+BOOTSTRAP_PY = os.path.join(BOOTSTRAP_VENV, "bin", "python")
 
-    The installed extension (in LibreOffice's cache) does not contain the sidecar
-    venv, so look for a Python 3.10+ with claude-agent-sdk in these places, in
-    order: $CLAUDE_WRITER_PYTHON, ~/.config/claude-writer/python (a file holding
-    the path), the extension's own .venv, then the documented source-tree venv.
+
+def _sidecar_script_and_env():
+    """Return (script_path, env) for launching the sidecar."""
+    script = os.path.join(_ext_dir(), "sidecar", "agent_main.py")
+    env = dict(os.environ)
+    env.pop("ANTHROPIC_API_KEY", None)  # force Claude Code subscription auth
+    return script, env
+
+
+def _python_has_sdk(python_path):
+    """True if python_path exists and can import claude_agent_sdk."""
+    if not python_path or not os.path.exists(python_path):
+        return False
+    try:
+        return subprocess.run(
+            [python_path, "-c", "import claude_agent_sdk"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
+        ).returncode == 0
+    except Exception:
+        return False
+
+
+def find_working_python():
+    """Return a Python interpreter that has claude-agent-sdk, or None.
+
+    Order: $CLAUDE_WRITER_PYTHON, ~/.config/claude-writer/python (written by
+    install.sh), the auto-bootstrap venv, then legacy source-tree venvs. Returns
+    the first one that actually imports the SDK; None means we must bootstrap.
     """
-    ext = _ext_dir()
-    script = os.path.join(ext, "sidecar", "agent_main.py")
-
     candidates = []
     if os.environ.get("CLAUDE_WRITER_PYTHON"):
         candidates.append(os.environ["CLAUDE_WRITER_PYTHON"])
@@ -69,15 +93,38 @@ def _resolve_sidecar(ctx):
         except OSError:
             pass
     candidates += [
-        os.path.join(ext, ".venv", "bin", "python"),
+        BOOTSTRAP_PY,
+        os.path.join(_ext_dir(), ".venv", "bin", "python"),
         os.path.expanduser("~/claude-writer/.venv/bin/python"),
-        os.path.expanduser("~/.claude-writer/.venv/bin/python"),
     ]
-    python_path = next((p for p in candidates if p and os.path.exists(p)), "python3")
+    for p in candidates:
+        if _python_has_sdk(p):
+            return p
+    return None
 
-    env = dict(os.environ)
-    env.pop("ANTHROPIC_API_KEY", None)  # force Claude Code subscription auth
-    return python_path, script, env
+
+def bootstrap_sidecar_env():
+    """Create BOOTSTRAP_VENV with system python3 and install the SDK into it.
+
+    Blocking and slow — call from a background thread. Returns the interpreter
+    path on success; raises RuntimeError with the captured output on failure.
+    """
+    py3 = shutil.which("python3") or "python3"
+    os.makedirs(os.path.dirname(BOOTSTRAP_VENV), exist_ok=True)
+    if not os.path.exists(BOOTSTRAP_PY):
+        r = subprocess.run([py3, "-m", "venv", BOOTSTRAP_VENV],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError("Creating the Python environment failed:\n"
+                               + (r.stderr or r.stdout or "").strip())
+    r = subprocess.run([BOOTSTRAP_PY, "-m", "pip", "install", "claude-agent-sdk"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError("Installing claude-agent-sdk failed:\n"
+                           + (r.stderr or r.stdout or "").strip()[-1500:])
+    if not _python_has_sdk(BOOTSTRAP_PY):
+        raise RuntimeError("Setup finished but claude-agent-sdk still won't import.")
+    return BOOTSTRAP_PY
 
 
 # ----------------------------------------------------------------------------
@@ -131,10 +178,8 @@ class ClaudePanel(unohelper.Base, XActionListener):
         except Exception:
             self._build_error_ui(traceback.format_exc())
             return
-        try:
-            self._start_sidecar()
-        except Exception as exc:
-            self._set_status(f"Could not start Claude: {exc}")
+        self.client = None
+        self._provision_and_start()
 
     # -- UI construction ---------------------------------------------------
     def _create(self, service):
@@ -255,9 +300,42 @@ class ClaudePanel(unohelper.Base, XActionListener):
         self._controls["send"].getModel().setPropertyValue(
             "Label", "Improve" if visible else "Send")
 
-    # -- sidecar -----------------------------------------------------------
-    def _start_sidecar(self):
-        python_path, script, env = _resolve_sidecar(self.ctx)
+    # -- bootstrap + sidecar ----------------------------------------------
+    def _provision_and_start(self):
+        """Find a working sidecar interpreter (bootstrapping one if needed),
+        then start the sidecar — all off the main UNO thread so the UI never
+        freezes during first-run setup."""
+        self._set_status("Starting Claude…")
+        threading.Thread(target=self._provision_thread,
+                         name="claude-bootstrap", daemon=True).start()
+
+    def _provision_thread(self):
+        try:
+            python_path = find_working_python()
+            if python_path is None:
+                self.main.post(lambda: self._note(
+                    "Setting up Claude… (one-time first-run setup — creating a "
+                    "Python environment and installing the SDK; this can take a "
+                    "minute)"))
+                python_path = bootstrap_sidecar_env()
+                self.main.post(lambda: self._note("Setup complete."))
+            self.main.post(lambda: self._start_sidecar(python_path))
+        except Exception:
+            err = traceback.format_exc()
+            self.main.post(lambda: self._setup_failed(err))
+
+    def _setup_failed(self, err):
+        self._set_status("Setup failed")
+        self._append_log("System", "Could not set up Claude:\n\n" + err)
+
+    def _note(self, msg):
+        self._append_log("Claude", msg)
+        self._set_status("Setting up Claude…")
+
+    def _start_sidecar(self, python_path):
+        if self.client is not None and self.client.is_running():
+            return
+        script, env = _sidecar_script_and_env()
         self.client = sidecar_client.SidecarClient(
             python_path, script, env=env, cwd=_ext_dir(),
             on_ready=lambda: self.main.post(self._on_ready),
@@ -334,7 +412,10 @@ class ClaudePanel(unohelper.Base, XActionListener):
 
     def _do_send(self):
         text = self._controls["input"].getText().strip()
-        if not text or not self.client.is_running():
+        if not text:
+            return
+        if self.client is None or not self.client.is_running():
+            self._set_status("Claude isn't ready yet — still setting up.")
             return
         self._controls["input"].setText("")
         self._append_log("You", text)

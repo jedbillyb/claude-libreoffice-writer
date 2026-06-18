@@ -36,17 +36,23 @@ pipe. Document edits are applied in-process via UNO as single undoable steps.
 
 ## Install
 
-One command does everything — creates the sidecar Python environment, installs
-the Claude Agent SDK, points the extension at it, builds the `.oxt`, and installs
-it into LibreOffice:
+**Easiest — just install the extension; it sets itself up.** Install
+`claude-writer.oxt` (Tools → Extension Manager → Add, or `unopkg add
+claude-writer.oxt`), restart LibreOffice, and open the **Claude** sidebar. On
+first run it auto-creates its own Python environment at
+`~/.local/share/claude-writer/venv` and installs the Claude Agent SDK — you'll
+see "Setting up Claude…" in the panel for ~30s, then it's ready. Needs a
+`python3` with `venv` on PATH (and the Claude Code CLI logged in).
+
+**Or run the installer** (does the setup up-front instead of on first run, and
+builds the `.oxt` for you):
 
 ```bash
 ./install.sh
 ```
 
-It needs [`uv`](https://docs.astral.sh/uv/) (preferred) or a `python3` with
-`venv`+`pip`. Then **restart LibreOffice**, open Writer, and pick the **Claude**
-tab in the sidebar. To remove it later: `./uninstall.sh`.
+It uses [`uv`](https://docs.astral.sh/uv/) or `python3 -m venv`. To remove
+everything later: `./uninstall.sh`.
 
 <details>
 <summary>Manual install (what install.sh does)</summary>
