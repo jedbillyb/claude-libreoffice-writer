@@ -36,21 +36,29 @@ pipe. Document edits are applied in-process via UNO as single undoable steps.
 
 ## Install
 
+One command does everything — creates the sidecar Python environment, installs
+the Claude Agent SDK, points the extension at it, builds the `.oxt`, and installs
+it into LibreOffice:
+
 ```bash
-# 1. Build the extension package
-./build.sh
-
-# 2. Create the sidecar venv next to the extension sources, with the SDK
-uv venv .venv            # or: python3 -m venv .venv
-uv pip install -r requirements.txt   # or: .venv/bin/pip install -r requirements.txt
-
-# 3. Install into LibreOffice
-unopkg add claude-writer.oxt
-#   (or Tools > Extension Manager > Add…)
+./install.sh
 ```
 
-Open Writer; the **Claude** deck appears in the sidebar (or Tools > "Claude
-Assistant (toggle sidebar)").
+It needs [`uv`](https://docs.astral.sh/uv/) (preferred) or a `python3` with
+`venv`+`pip`. Then **restart LibreOffice**, open Writer, and pick the **Claude**
+tab in the sidebar. To remove it later: `./uninstall.sh`.
+
+<details>
+<summary>Manual install (what install.sh does)</summary>
+
+```bash
+uv venv .venv && uv pip install -r requirements.txt   # sidecar SDK env
+mkdir -p ~/.config/claude-writer
+echo "$PWD/.venv/bin/python" > ~/.config/claude-writer/python
+PYTHON=.venv/bin/python ./build.sh                    # -> claude-writer.oxt
+unopkg add --force claude-writer.oxt
+```
+</details>
 
 ### Pointing at a different Python
 
@@ -97,6 +105,14 @@ round-trip without LibreOffice.
 
 ## Status
 
-v0.1 — backbone (sidecar, MCP tools, document ops, preview-then-apply wiring)
-is implemented and the agent round-trip is verified headlessly. The sidebar GUI
-layer needs interactive testing inside LibreOffice.
+v0.1 — working: native sidebar (chat, rewrite selection, generate/continue,
+summarise), in-document highlighted preview with Apply / Improve / Reject,
+whole-document rewrite, Enter-to-send, and Claude Code (subscription) auth with
+no API key. Document operations and the agent round-trip are verified against a
+live LibreOffice.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Note: the Claude name and the sidebar icon are
+Anthropic brand assets and are **not** covered by the MIT license; replace the
+icon before redistributing if you don't have permission to use it.
