@@ -59,7 +59,19 @@ def build_tools(bridge):
         reply = await bridge.call_op("insert_at_cursor", {"text": args.get("text", "")})
         return {"content": [{"type": "text", "text": _edit_result(reply)}]}
 
-    return [get_document_text, get_selection, replace_selection, insert_at_cursor]
+    @tool(
+        "replace_document",
+        "Replace the ENTIRE document with new text. Use this when the user asks to "
+        "rewrite, reformat, or transform the whole document and nothing is selected. "
+        "The change is shown to the user for approval before it is applied.",
+        {"text": str},
+    )
+    async def replace_document(args):
+        reply = await bridge.call_op("replace_document", {"text": args.get("text", "")})
+        return {"content": [{"type": "text", "text": _edit_result(reply)}]}
+
+    return [get_document_text, get_selection, replace_selection,
+            insert_at_cursor, replace_document]
 
 
 def tool_names(server="writer"):
@@ -68,6 +80,7 @@ def tool_names(server="writer"):
         f"mcp__{server}__get_selection",
         f"mcp__{server}__replace_selection",
         f"mcp__{server}__insert_at_cursor",
+        f"mcp__{server}__replace_document",
     ]
 
 

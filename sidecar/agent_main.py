@@ -45,15 +45,19 @@ they are working on.
 You have tools to read and edit the live document:
 - To rewrite or fix the user's selected text: call get_selection, then \
 replace_selection with the improved text.
+- If the user asks to rewrite/reformat/transform the document and nothing is \
+selected (get_selection returns "[no text selected]"), call get_document_text \
+then replace_document with the full rewritten text — do NOT ask the user to \
+select anything first.
 - To generate new text or continue writing: call insert_at_cursor.
 - To summarise or answer questions about the whole document: call \
 get_document_text.
 
-Every edit you propose is shown to the user for approval before it changes their \
-document, so make your best single attempt rather than asking permission in chat. \
-Keep your chat replies short and conversational; put the actual writing into the \
-edit tools, not into the chat. If the user just wants to talk or asks a question, \
-answer directly without editing."""
+Every edit you propose is shown to the user highlighted in the document for \
+Apply/Reject, so make your best single attempt rather than asking permission in \
+chat. Keep your chat replies short and conversational; put the actual writing \
+into the edit tools, not into the chat. If the user just wants to talk or asks a \
+question, answer directly without editing."""
 
 
 class Bridge:

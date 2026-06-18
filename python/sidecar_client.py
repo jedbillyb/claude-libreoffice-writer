@@ -17,7 +17,7 @@ import subprocess
 import threading
 
 READ_OPS = ("get_document_text", "get_selection")
-EDIT_OPS = ("replace_selection", "insert_at_cursor")
+EDIT_OPS = ("replace_selection", "insert_at_cursor", "replace_document")
 
 
 class SidecarClient:

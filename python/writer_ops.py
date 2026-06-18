@@ -45,32 +45,97 @@ def get_selection(doc):
     return text_range.getString()
 
 
-def apply_replace_selection(doc, new_text):
-    """Replace the current selection with new_text, as one undoable step."""
+# ---------------------------------------------------------------------------
+# In-document preview: a proposed edit is written into the document with a
+# highlight so the user can read it in context, then Apply (keep, clear the
+# highlight) or Reject (revert). One pending preview at a time, tracked by a
+# bookmark so it survives the user clicking around.
+# ---------------------------------------------------------------------------
+PREVIEW_COLOR = 0xFFF6BF  # soft yellow highlight
+PREVIEW_BOOKMARK = "ClaudePreview"
+
+
+def _clear_stale_preview(doc):
+    bms = doc.getBookmarks()
+    if bms.hasByName(PREVIEW_BOOKMARK):
+        doc.getText().removeTextContent(bms.getByName(PREVIEW_BOOKMARK))
+
+
+def start_preview(doc, kind, new_text):
+    """Write a proposed edit into the document, highlighted, and bookmark it.
+
+    kind: 'replace_selection' | 'replace_document' | 'insert_at_cursor'.
+    Returns {handle, original, kind} for a later accept/reject.
+    """
     if doc is None:
         raise RuntimeError("No active Writer document.")
+    body = doc.getText()
     controller = doc.getCurrentController()
-    selection = controller.getSelection()
-    if selection is None or selection.getCount() == 0:
-        raise RuntimeError("Nothing is selected to replace.")
+    _clear_stale_preview(doc)
+
     undo = doc.getUndoManager()
-    undo.enterUndoContext("Claude: replace selection")
+    undo.enterUndoContext("Claude proposed change")
     try:
-        selection.getByIndex(0).setString(new_text)
+        if kind == "replace_selection":
+            sel = controller.getSelection()
+            if (sel is None or not hasattr(sel, "getCount")
+                    or sel.getCount() == 0 or not sel.getByIndex(0).getString()):
+                raise RuntimeError("Nothing is selected to replace.")
+            cur = body.createTextCursorByRange(sel.getByIndex(0))
+            original = cur.getString()
+            cur.setString(new_text)
+        elif kind == "replace_document":
+            original = body.getString()
+            cur = body.createTextCursor()
+            cur.gotoStart(False)
+            cur.gotoEnd(True)
+            cur.setString(new_text)
+        elif kind == "insert_at_cursor":
+            original = ""
+            cur = body.createTextCursorByRange(controller.getViewCursor().getStart())
+            cur.setString(new_text)
+        else:
+            raise RuntimeError("Unknown edit kind: %s" % kind)
+
+        cur.CharBackColor = PREVIEW_COLOR
+        bm = doc.createInstance("com.sun.star.text.Bookmark")
+        bm.setName(PREVIEW_BOOKMARK)
+        body.insertTextContent(cur, bm, True)  # absorb -> bookmark spans the range
+    finally:
+        undo.leaveUndoContext()
+
+    return {"handle": PREVIEW_BOOKMARK, "original": original, "kind": kind}
+
+
+def accept_preview(doc, handle):
+    """Keep the previewed text; just clear the highlight and the bookmark."""
+    bms = doc.getBookmarks()
+    if not bms.hasByName(handle):
+        return
+    bm = bms.getByName(handle)
+    undo = doc.getUndoManager()
+    undo.enterUndoContext("Claude change applied")
+    try:
+        cur = doc.getText().createTextCursorByRange(bm.getAnchor())
+        cur.setPropertyToDefault("CharBackColor")
+        doc.getText().removeTextContent(bm)
     finally:
         undo.leaveUndoContext()
 
 
-def apply_insert_at_cursor(doc, text):
-    """Insert text at the view cursor position, as one undoable step."""
-    if doc is None:
-        raise RuntimeError("No active Writer document.")
-    controller = doc.getCurrentController()
-    view_cursor = controller.getViewCursor()
-    body = doc.getText()
+def reject_preview(doc, handle, original, kind):
+    """Revert the previewed text (restore original / delete insertion)."""
+    bms = doc.getBookmarks()
+    if not bms.hasByName(handle):
+        return
+    bm = bms.getByName(handle)
     undo = doc.getUndoManager()
-    undo.enterUndoContext("Claude: insert text")
+    undo.enterUndoContext("Claude change rejected")
     try:
-        body.insertString(view_cursor.getStart(), text, False)
+        cur = doc.getText().createTextCursorByRange(bm.getAnchor())
+        cur.setPropertyToDefault("CharBackColor")
+        cur.setString(original)  # '' for an insertion -> deletes it
+        if bms.hasByName(handle):
+            doc.getText().removeTextContent(bms.getByName(handle))
     finally:
         undo.leaveUndoContext()

@@ -144,7 +144,6 @@ class ClaudePanel(unohelper.Base, XActionListener):
         self.container = container
 
         self._controls["log"] = self._add_edit("log", multiline=True, readonly=True)
-        self._controls["preview"] = self._add_edit("preview", multiline=True, readonly=True)
         self._controls["input"] = self._add_edit("input", multiline=True, readonly=False)
         self._controls["send"] = self._add_button("send", "Send")
         self._controls["apply"] = self._add_button("apply", "Apply")
@@ -156,7 +155,7 @@ class ClaudePanel(unohelper.Base, XActionListener):
         container.setPosSize(0, 0, psz.Width, psz.Height, 15)
         self._resize_listener = _ResizeListener(self)
         self.parent.addWindowListener(self._resize_listener)
-        self._show_preview(False)
+        self._show_actions(False)
         self._relayout()
         container.setVisible(True)
 
@@ -220,29 +219,28 @@ class ClaudePanel(unohelper.Base, XActionListener):
         x = pad
         cw = max(40, w - 2 * pad)
         status_h = 18
-        btn_h = 26
-        input_h = 60
-        preview_visible = self.pending_edit is not None
-        preview_h = 90 if preview_visible else 0
+        btn_h = 28
+        input_h = 64
+        actions_visible = self.pending_edit is not None
+        actions_h = btn_h + pad if actions_visible else 0
 
         y = pad
         self._controls["status"].setPosSize(x, y, cw, status_h, 15)
         y += status_h + pad
-        log_h = max(60, h - (status_h + preview_h + input_h + btn_h + 6 * pad))
+        log_h = max(60, h - (status_h + input_h + btn_h + actions_h + 5 * pad))
         self._controls["log"].setPosSize(x, y, cw, log_h, 15)
         y += log_h + pad
-        if preview_visible:
-            self._controls["preview"].setPosSize(x, y, cw, preview_h, 15)
-            y += preview_h + pad
+        if actions_visible:
+            bw = (cw - pad) // 2
+            self._controls["apply"].setPosSize(x, y, bw, btn_h, 15)
+            self._controls["reject"].setPosSize(x + bw + pad, y, bw, btn_h, 15)
+            y += actions_h
         self._controls["input"].setPosSize(x, y, cw, input_h, 15)
         y += input_h + pad
-        bw = (cw - 2 * pad) // 3
-        self._controls["send"].setPosSize(x, y, bw, btn_h, 15)
-        self._controls["apply"].setPosSize(x + bw + pad, y, bw, btn_h, 15)
-        self._controls["reject"].setPosSize(x + 2 * (bw + pad), y, bw, btn_h, 15)
+        self._controls["send"].setPosSize(x, y, cw, btn_h, 15)
 
-    def _show_preview(self, visible):
-        for n in ("preview", "apply", "reject"):
+    def _show_actions(self, visible):
+        for n in ("apply", "reject"):
             self._controls[n].setVisible(visible)
 
     # -- sidecar -----------------------------------------------------------
@@ -278,14 +276,28 @@ class ClaudePanel(unohelper.Base, XActionListener):
             return {"text": writer_ops.get_selection(doc)}
         return {}
 
+    _EDIT_LABEL = {
+        "replace_selection": "rewrite the selected text",
+        "replace_document": "rewrite the whole document",
+        "insert_at_cursor": "insert text",
+    }
+
     def _request_edit(self, op, args, done):
-        # Called on the reader thread -> hop to the main thread to show preview.
+        # Called on the reader thread -> hop to the main thread to write the
+        # preview into the document (highlighted) and show Apply/Reject.
         def show():
-            self.pending_edit = (done, op, args)
-            label = "replace selection" if op == "replace_selection" else "insert"
-            self._controls["preview"].setText(args.get("text", ""))
-            self._set_status(f"Claude proposes to {label}. Apply or Reject?")
-            self._show_preview(True)
+            try:
+                doc = writer_ops.current_text_doc(self.ctx)
+                info = writer_ops.start_preview(doc, op, args.get("text", ""))
+            except Exception as exc:
+                done(False, error=str(exc))
+                self._set_status(str(exc))
+                return
+            self.pending_edit = (done, info)
+            self._set_status("Claude wants to "
+                             + self._EDIT_LABEL.get(op, "edit")
+                             + " (highlighted). Apply or Reject?")
+            self._show_actions(True)
             self._relayout()
         self.main.post(show)
 
@@ -311,25 +323,23 @@ class ClaudePanel(unohelper.Base, XActionListener):
     def _resolve_edit(self, apply_it):
         if self.pending_edit is None:
             return
-        done, op, args = self.pending_edit
+        done, info = self.pending_edit
         self.pending_edit = None
-        self._show_preview(False)
+        self._show_actions(False)
         self._relayout()
-        if apply_it:
-            try:
-                doc = writer_ops.current_text_doc(self.ctx)
-                if op == "replace_selection":
-                    writer_ops.apply_replace_selection(doc, args.get("text", ""))
-                elif op == "insert_at_cursor":
-                    writer_ops.apply_insert_at_cursor(doc, args.get("text", ""))
-                done(True)
+        doc = writer_ops.current_text_doc(self.ctx)
+        try:
+            if apply_it:
+                writer_ops.accept_preview(doc, info["handle"])
                 self._set_status("Edit applied")
-            except Exception as exc:
-                done(False, error=str(exc))
-                self._set_status(f"Edit failed: {exc}")
-        else:
-            done(False)
-            self._set_status("Edit rejected")
+            else:
+                writer_ops.reject_preview(doc, info["handle"],
+                                          info["original"], info["kind"])
+                self._set_status("Edit rejected")
+            done(apply_it)
+        except Exception as exc:
+            done(False, error=str(exc))
+            self._set_status(f"Edit failed: {exc}")
 
     # -- helpers -----------------------------------------------------------
     def _append_log(self, who, text):
@@ -414,7 +424,7 @@ class PanelUIElement(unohelper.Base, XUIElement, XToolPanel, XSidebarPanel):
         return LayoutSize(0, -1, 0)  # flexible height
 
     def getMinimalWidth(self):
-        return 180
+        return 320
 
 
 class PanelFactory(unohelper.Base, XUIElementFactory):
