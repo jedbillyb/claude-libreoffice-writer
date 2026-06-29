@@ -386,8 +386,9 @@ class ClaudePanel(unohelper.Base, XActionListener):
             self.pending_edit = (done, info)
             self._set_status("Claude wants to "
                              + self._EDIT_LABEL.get(op, "edit")
-                             + " (highlighted). Apply, Reject, or type feedback "
-                             + "and press Improve/Enter.")
+                             + " (changes shown inline: green = added, red "
+                             + "strikethrough = removed). Apply, Reject, or type "
+                             + "feedback and press Improve/Enter.")
             self._show_actions(True)
             self._relayout()
         self.main.post(show)
@@ -432,7 +433,7 @@ class ClaudePanel(unohelper.Base, XActionListener):
         doc = writer_ops.current_text_doc(self.ctx)
         try:
             if apply_it:
-                writer_ops.accept_preview(doc, info["handle"])
+                writer_ops.accept_preview(doc, info["handle"], info["new"])
                 self._set_status("Edit applied")
             else:
                 writer_ops.reject_preview(doc, info["handle"],

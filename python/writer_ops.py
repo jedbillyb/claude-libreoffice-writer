@@ -5,8 +5,13 @@ that touches UNO. They perform the *actual* apply; the preview-then-apply gating
 lives in the panel, which calls apply_* only after the user clicks Apply.
 """
 
+import difflib
+import re
+
 import uno
 from com.sun.star.beans import PropertyValue  # noqa: F401  (kept for callers)
+from com.sun.star.awt.FontStrikeout import SINGLE as STRIKEOUT_SINGLE
+from com.sun.star.awt.FontUnderline import SINGLE as UNDERLINE_SINGLE
 
 
 def get_desktop(ctx):
@@ -46,13 +51,20 @@ def get_selection(doc):
 
 
 # ---------------------------------------------------------------------------
-# In-document preview: a proposed edit is written into the document with a
-# highlight so the user can read it in context, then Apply (keep, clear the
-# highlight) or Reject (revert). One pending preview at a time, tracked by a
-# bookmark so it survives the user clicking around.
+# In-document preview: a proposed edit is written into the document as an inline
+# word-level diff (deletions struck through on a red wash, insertions on a green
+# wash) so the user can see exactly what changed in context, then Apply (collapse
+# to the new text) or Reject (restore the original). One pending preview at a
+# time, tracked by a bookmark so it survives the user clicking around.
 # ---------------------------------------------------------------------------
-PREVIEW_COLOR = 0xFFF6BF  # soft yellow highlight
+INSERT_BACK = 0xCCEFCC   # light green wash behind added words
+INSERT_FORE = 0x116611   # dark green added-text colour
+DELETE_BACK = 0xF6CCCC   # light red wash behind removed words
+DELETE_FORE = 0x992222   # dark red removed-text colour
 PREVIEW_BOOKMARK = "ClaudePreview"
+
+# Char properties the diff touches; reset to default to clear the preview wash.
+_DIFF_PROPS = ("CharBackColor", "CharColor", "CharStrikeout", "CharUnderline")
 
 
 def _clear_stale_preview(doc):
@@ -61,11 +73,64 @@ def _clear_stale_preview(doc):
         doc.getText().removeTextContent(bms.getByName(PREVIEW_BOOKMARK))
 
 
+def _tokenize(s):
+    """Split into words and whitespace runs, preserving every character."""
+    return re.findall(r"\s+|\S+", s)
+
+
+def diff_runs(original, new):
+    """Word-level diff as a list of ('equal'|'delete'|'insert', text) runs."""
+    a, b = _tokenize(original), _tokenize(new)
+    matcher = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    runs = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            runs.append(("equal", "".join(a[i1:i2])))
+        elif tag == "delete":
+            runs.append(("delete", "".join(a[i1:i2])))
+        elif tag == "insert":
+            runs.append(("insert", "".join(b[j1:j2])))
+        elif tag == "replace":
+            runs.append(("delete", "".join(a[i1:i2])))
+            runs.append(("insert", "".join(b[j1:j2])))
+    return runs
+
+
+def _style_for(cursor, run_kind):
+    """Set the char properties a collapsed cursor will hand to inserted text."""
+    if run_kind == "insert":
+        cursor.CharBackColor = INSERT_BACK
+        cursor.CharColor = INSERT_FORE
+        cursor.CharStrikeout = 0
+        cursor.CharUnderline = UNDERLINE_SINGLE
+    elif run_kind == "delete":
+        cursor.CharBackColor = DELETE_BACK
+        cursor.CharColor = DELETE_FORE
+        cursor.CharStrikeout = STRIKEOUT_SINGLE
+        cursor.CharUnderline = 0
+    else:  # equal -> leave the document's own formatting alone
+        for prop in _DIFF_PROPS:
+            cursor.setPropertyToDefault(prop)
+
+
+def _write_diff(body, anchor, runs):
+    """Insert diff runs at the collapsed ``anchor`` cursor; bookmark the span."""
+    start = anchor.getStart()
+    for run_kind, text in runs:
+        if not text:
+            continue
+        _style_for(anchor, run_kind)
+        body.insertString(anchor, text, False)  # cursor moves past the run
+    span = body.createTextCursorByRange(start)
+    span.gotoRange(anchor.getEnd(), True)
+    return span
+
+
 def start_preview(doc, kind, new_text):
-    """Write a proposed edit into the document, highlighted, and bookmark it.
+    """Write a proposed edit into the document as an inline diff and bookmark it.
 
     kind: 'replace_selection' | 'replace_document' | 'insert_at_cursor'.
-    Returns {handle, original, kind} for a later accept/reject.
+    Returns {handle, original, new, kind} for a later accept/reject.
     """
     if doc is None:
         raise RuntimeError("No active Writer document.")
@@ -83,59 +148,54 @@ def start_preview(doc, kind, new_text):
                 raise RuntimeError("Nothing is selected to replace.")
             cur = body.createTextCursorByRange(sel.getByIndex(0))
             original = cur.getString()
-            cur.setString(new_text)
         elif kind == "replace_document":
-            original = body.getString()
             cur = body.createTextCursor()
             cur.gotoStart(False)
             cur.gotoEnd(True)
-            cur.setString(new_text)
+            original = cur.getString()
         elif kind == "insert_at_cursor":
             original = ""
             cur = body.createTextCursorByRange(controller.getViewCursor().getStart())
-            cur.setString(new_text)
         else:
             raise RuntimeError("Unknown edit kind: %s" % kind)
 
-        cur.CharBackColor = PREVIEW_COLOR
+        cur.setString("")  # clear the target region; cur collapses to its start
+        span = _write_diff(body, cur, diff_runs(original, new_text))
+
         bm = doc.createInstance("com.sun.star.text.Bookmark")
         bm.setName(PREVIEW_BOOKMARK)
-        body.insertTextContent(cur, bm, True)  # absorb -> bookmark spans the range
+        body.insertTextContent(span, bm, True)  # absorb -> bookmark spans the diff
     finally:
         undo.leaveUndoContext()
 
-    return {"handle": PREVIEW_BOOKMARK, "original": original, "kind": kind}
+    return {"handle": PREVIEW_BOOKMARK, "original": original,
+            "new": new_text, "kind": kind}
 
 
-def accept_preview(doc, handle):
-    """Keep the previewed text; just clear the highlight and the bookmark."""
+def _collapse_preview(doc, handle, final_text, undo_label):
+    """Replace the diff region with clean ``final_text`` and drop the bookmark."""
     bms = doc.getBookmarks()
     if not bms.hasByName(handle):
         return
     bm = bms.getByName(handle)
     undo = doc.getUndoManager()
-    undo.enterUndoContext("Claude change applied")
+    undo.enterUndoContext(undo_label)
     try:
         cur = doc.getText().createTextCursorByRange(bm.getAnchor())
-        cur.setPropertyToDefault("CharBackColor")
-        doc.getText().removeTextContent(bm)
-    finally:
-        undo.leaveUndoContext()
-
-
-def reject_preview(doc, handle, original, kind):
-    """Revert the previewed text (restore original / delete insertion)."""
-    bms = doc.getBookmarks()
-    if not bms.hasByName(handle):
-        return
-    bm = bms.getByName(handle)
-    undo = doc.getUndoManager()
-    undo.enterUndoContext("Claude change rejected")
-    try:
-        cur = doc.getText().createTextCursorByRange(bm.getAnchor())
-        cur.setPropertyToDefault("CharBackColor")
-        cur.setString(original)  # '' for an insertion -> deletes it
+        cur.setString(final_text)  # '' deletes (e.g. a rejected insertion)
+        for prop in _DIFF_PROPS:
+            cur.setPropertyToDefault(prop)
         if bms.hasByName(handle):
             doc.getText().removeTextContent(bms.getByName(handle))
     finally:
         undo.leaveUndoContext()
+
+
+def accept_preview(doc, handle, new_text):
+    """Apply the edit: collapse the diff to the proposed text, clean of styling."""
+    _collapse_preview(doc, handle, new_text, "Claude change applied")
+
+
+def reject_preview(doc, handle, original, kind):
+    """Revert the edit: collapse the diff back to the original text."""
+    _collapse_preview(doc, handle, original, "Claude change rejected")
