@@ -1,9 +1,10 @@
-# Claude Assistant for LibreOffice Writer
+# Quill
 
-A LibreOffice Writer extension that adds a native **Claude** sidebar: chat with
-Claude, rewrite the selected text, generate or continue writing, and summarise
-the document — with every edit previewed for **Apply / Reject** before it
-touches your document.
+**Quill** is a LibreOffice Writer extension — an AI writing assistant powered by
+**Claude**. It adds a native **Quill** sidebar: chat with Claude, rewrite the
+selected text, generate or continue writing, and summarise the document — with
+every edit shown as an inline **diff** for **Apply / Reject** before it touches
+your document.
 
 It authenticates off your existing **Claude Code login (subscription)** via the
 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/python) — **no
@@ -13,7 +14,7 @@ Anthropic API key required.**
 
 ```
 LibreOffice (Writer)                         agent sidecar (Python 3.10+ venv)
-  Claude sidebar panel  ── JSON over a pipe ──  claude-agent-sdk
+  Quill sidebar panel   ── JSON over a pipe ──  claude-agent-sdk
   owns the document (UNO)                        in-process MCP server "writer"
   applies edits on approval                      drives Claude via Claude Code login
 ```
@@ -37,10 +38,10 @@ pipe. Document edits are applied in-process via UNO as single undoable steps.
 ## Install
 
 **Easiest — just install the extension; it sets itself up.** Install
-`claude-writer.oxt` (Tools → Extension Manager → Add, or `unopkg add
-claude-writer.oxt`), restart LibreOffice, and open the **Claude** sidebar. On
+`quill-writer.oxt` (Tools → Extension Manager → Add, or `unopkg add
+quill-writer.oxt`), restart LibreOffice, and open the **Quill** sidebar. On
 first run it auto-creates its own Python environment at
-`~/.local/share/claude-writer/venv` and installs the Claude Agent SDK — you'll
+`~/.local/share/quill/venv` and installs the Claude Agent SDK — you'll
 see "Setting up Claude…" in the panel for ~30s, then it's ready. Needs a
 `python3` with `venv` on PATH (and the Claude Code CLI logged in).
 
@@ -59,10 +60,10 @@ everything later: `./uninstall.sh`.
 
 ```bash
 uv venv .venv && uv pip install -r requirements.txt   # sidecar SDK env
-mkdir -p ~/.config/claude-writer
-echo "$PWD/.venv/bin/python" > ~/.config/claude-writer/python
-PYTHON=.venv/bin/python ./build.sh                    # -> claude-writer.oxt
-unopkg add --force claude-writer.oxt
+mkdir -p ~/.config/quill
+echo "$PWD/.venv/bin/python" > ~/.config/quill/python
+PYTHON=.venv/bin/python ./build.sh                    # -> quill-writer.oxt
+unopkg add --force quill-writer.oxt
 ```
 </details>
 
@@ -71,10 +72,10 @@ unopkg add --force claude-writer.oxt
 By default the panel launches `<extension>/.venv/bin/python`. Override with:
 
 ```bash
-export CLAUDE_WRITER_PYTHON=/path/to/python3   # has claude-agent-sdk installed
+export QUILL_PYTHON=/path/to/python3   # has claude-agent-sdk installed
 ```
 
-Optional model override: `export CLAUDE_WRITER_MODEL=claude-opus-4-8`.
+Optional model override: `export QUILL_MODEL=claude-opus-4-8`.
 
 ## Usage
 
@@ -112,13 +113,15 @@ round-trip without LibreOffice.
 ## Status
 
 v0.1 — working: native sidebar (chat, rewrite selection, generate/continue,
-summarise), in-document highlighted preview with Apply / Improve / Reject,
+summarise), in-document inline-diff preview with Apply / Improve / Reject,
 whole-document rewrite, Enter-to-send, and Claude Code (subscription) auth with
 no API key. Document operations and the agent round-trip are verified against a
 live LibreOffice.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Note: the Claude name and the sidebar icon are
-Anthropic brand assets and are **not** covered by the MIT license; replace the
-icon before redistributing if you don't have permission to use it.
+MIT — see [LICENSE](LICENSE). "Quill" is the name of this extension; it is an
+independent project and is not affiliated with or endorsed by Anthropic. Note:
+the "Claude" name and the current sidebar icon are Anthropic brand assets and
+are **not** covered by the MIT license; replace the icon before redistributing
+if you don't have permission to use it.

@@ -39,8 +39,8 @@ from com.sun.star.awt.KeyModifier import SHIFT as MOD_SHIFT
 import sidecar_client
 import writer_ops
 
-IMPL_NAME = "org.jed.claudewriter.PanelFactory"
-RESOURCE_URL = "private:resource/toolpanel/ClaudeWriterFactory/ClaudePanel"
+IMPL_NAME = "org.quill.writer.PanelFactory"
+RESOURCE_URL = "private:resource/toolpanel/QuillFactory/QuillPanel"
 
 # ----------------------------------------------------------------------------
 # Configuration (python path for the sidecar venv, optional model override)
@@ -50,7 +50,7 @@ def _ext_dir():
 
 
 # Auto-managed sidecar environment. Change BOOTSTRAP_VENV to relocate it.
-BOOTSTRAP_VENV = os.path.expanduser("~/.local/share/claude-writer/venv")
+BOOTSTRAP_VENV = os.path.expanduser("~/.local/share/quill/venv")
 BOOTSTRAP_PY = os.path.join(BOOTSTRAP_VENV, "bin", "python")
 
 
@@ -78,14 +78,14 @@ def _python_has_sdk(python_path):
 def find_working_python():
     """Return a Python interpreter that has claude-agent-sdk, or None.
 
-    Order: $CLAUDE_WRITER_PYTHON, ~/.config/claude-writer/python (written by
-    install.sh), the auto-bootstrap venv, then legacy source-tree venvs. Returns
-    the first one that actually imports the SDK; None means we must bootstrap.
+    Order: $QUILL_PYTHON, ~/.config/quill/python (written by install.sh), the
+    auto-bootstrap venv, then legacy source-tree venvs. Returns the first one
+    that actually imports the SDK; None means we must bootstrap.
     """
     candidates = []
-    if os.environ.get("CLAUDE_WRITER_PYTHON"):
-        candidates.append(os.environ["CLAUDE_WRITER_PYTHON"])
-    cfg = os.path.expanduser("~/.config/claude-writer/python")
+    if os.environ.get("QUILL_PYTHON"):
+        candidates.append(os.environ["QUILL_PYTHON"])
+    cfg = os.path.expanduser("~/.config/quill/python")
     if os.path.exists(cfg):
         try:
             with open(cfg) as fh:
@@ -95,7 +95,7 @@ def find_working_python():
     candidates += [
         BOOTSTRAP_PY,
         os.path.join(_ext_dir(), ".venv", "bin", "python"),
-        os.path.expanduser("~/claude-writer/.venv/bin/python"),
+        os.path.expanduser("~/quill-writer/.venv/bin/python"),
     ]
     for p in candidates:
         if _python_has_sdk(p):
@@ -163,7 +163,7 @@ class _MainThreadCaller(unohelper.Base, XCallback):
 # ----------------------------------------------------------------------------
 # Panel
 # ----------------------------------------------------------------------------
-class ClaudePanel(unohelper.Base, XActionListener):
+class QuillPanel(unohelper.Base, XActionListener):
     def __init__(self, ctx, parent_window):
         self.ctx = ctx
         self.smgr = ctx.getServiceManager()
@@ -222,7 +222,7 @@ class ClaudePanel(unohelper.Base, XActionListener):
             self.container = container
             err = self._add_edit("err", multiline=True, readonly=True)
             err.getModel().setPropertyValue("Text",
-                                            "Claude panel failed to load:\n\n" + message)
+                                            "Quill panel failed to load:\n\n" + message)
             psz = self.parent.getPosSize()
             container.setPosSize(0, 0, psz.Width, psz.Height, 15)
             err.setPosSize(4, 4, max(40, psz.Width - 8), max(40, psz.Height - 8), 15)
@@ -586,7 +586,7 @@ class PanelFactory(unohelper.Base, XUIElementFactory):
                 frame = arg.Value
             elif arg.Name == "ParentWindow":
                 parent = arg.Value
-        panel = ClaudePanel(self.ctx, parent)
+        panel = QuillPanel(self.ctx, parent)
         return PanelUIElement(self.ctx, frame, panel)
 
 

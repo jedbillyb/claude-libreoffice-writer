@@ -1,8 +1,9 @@
-Claude Assistant for LibreOffice Writer.
+Quill — an AI writing assistant for LibreOffice Writer, powered by Claude.
 
-Adds a "Claude" sidebar panel that lets you chat with Claude, rewrite the
+Adds a "Quill" sidebar panel that lets you chat with Claude, rewrite the
 selected text, generate or continue writing, and summarise the document.
-Every edit is previewed for Apply/Reject before it changes your document.
+Every edit is shown as an inline diff for Apply/Reject before it changes
+your document.
 
 Authentication uses your existing Claude Code login (subscription) via the
 Claude Agent SDK — no Anthropic API key is required.

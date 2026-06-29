@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot installer for the Claude Assistant LibreOffice Writer extension.
+# One-shot installer for Quill, the Claude-powered LibreOffice Writer extension.
 # Creates the sidecar Python environment, installs the Claude Agent SDK, points
 # the extension at it, builds the .oxt, and installs it into LibreOffice.
 set -euo pipefail
@@ -11,7 +11,7 @@ PY="$VENV/bin/python"
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*"; }
 
-say "Claude Assistant for LibreOffice Writer — installer"
+say "Quill for LibreOffice Writer — installer"
 
 # 1. Prerequisites -----------------------------------------------------------
 command -v soffice >/dev/null || { echo "LibreOffice ('soffice') not found. Install LibreOffice first."; exit 1; }
@@ -45,8 +45,8 @@ fi
 say "SDK installed: $("$PY" -c 'import claude_agent_sdk as c; print(getattr(c,"__version__","?"))')"
 
 # 3. Tell the extension which interpreter to use ----------------------------
-mkdir -p "$HOME/.config/claude-writer"
-printf '%s\n' "$PY" > "$HOME/.config/claude-writer/python"
+mkdir -p "$HOME/.config/quill"
+printf '%s\n' "$PY" > "$HOME/.config/quill/python"
 say "Configured interpreter -> $PY"
 
 # 4. Build and install the extension ----------------------------------------
@@ -57,8 +57,8 @@ if pgrep -x soffice.bin >/dev/null 2>&1; then
   warn "LibreOffice is running — installing with --force; restart it afterwards."
 fi
 say "Installing into LibreOffice…"
-unopkg add --force "$EXT_DIR/claude-writer.oxt"
+unopkg add --force "$EXT_DIR/quill-writer.oxt"
 
 echo
-say "Done. Restart LibreOffice, open Writer, and choose the Claude sidebar tab."
+say "Done. Restart LibreOffice, open Writer, and choose the Quill sidebar tab."
 command -v claude >/dev/null || warn "Remember to install + log in to the Claude Code CLI."

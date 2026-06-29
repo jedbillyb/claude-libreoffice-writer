@@ -143,7 +143,7 @@ async def main():
         allowed_tools=writer_tools.tool_names("writer"),
         permission_mode="bypassPermissions",  # our own tools; user gates edits in the UI
         system_prompt=SYSTEM_PROMPT,
-        model=os.environ.get("CLAUDE_WRITER_MODEL") or None,
+        model=os.environ.get("QUILL_MODEL") or None,
         setting_sources=[],  # do not load filesystem tools / project CLAUDE.md
     )
 

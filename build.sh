@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Package the extension into claude-writer.oxt (a zip), using Python's zipfile
+# Package the extension into quill-writer.oxt (a zip), using Python's zipfile
 # so no external `zip` binary is required.
 #
 # The sidecar Python venv (.venv) is NOT bundled — it is platform-specific and
-# heavy. Create it once after install (see README) or point CLAUDE_WRITER_PYTHON
+# heavy. Create it once after install (see README) or point QUILL_PYTHON
 # at any Python 3.10+ that has claude-agent-sdk installed.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -12,7 +12,7 @@ PY="${PYTHON:-python3}"
 "$PY" - <<'PYCODE'
 import zipfile, os, sys
 
-OUT = "claude-writer.oxt"
+OUT = "quill-writer.oxt"
 FILES = [
     "description.xml",
     "description-en.txt",
